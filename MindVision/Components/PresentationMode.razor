@@ -1,0 +1,169 @@
+﻿
+
+@inject NavigationManager navigationManager
+@inject MindVision.Services.QuizService quizService
+
+@using MindVision.Hubs
+@using Microsoft.AspNetCore.SignalR.Client
+
+<MudGrid Justify="Justify.Center">
+    <MudItem xs="4">
+        <div style="display:flex;align-items:center;justify-content:center">
+            <MudText Typo="Typo.h5">
+                Questions
+            </MudText>
+        </div>
+        <br />
+        <MudPaper Elevation="2" Style="padding:20px;min-height:450px">
+            <MudList Clickable="true" Dense="true">
+                <Virtualize ItemsProvider="@LoadQuestions" Context="question">
+                    <ItemContent>
+                        <MudListItem OnClick="@(_ => OnItemSelected(question.Id))">
+                            <MudText Typo="Typo.caption">
+                                @question.Title
+                            </MudText>
+                            <MudText Typo="Typo.subtitle2">
+                                @question.Description
+                            </MudText>
+                        </MudListItem>
+                    </ItemContent>
+                    <Placeholder>
+                        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="250" />
+                    </Placeholder>
+                </Virtualize>
+            </MudList>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="8">
+        <div style="display:flex;align-items:center;justify-content:center">
+            <MudText Typo="Typo.h5">
+                Flash Cards
+            </MudText>
+        </div>
+        <br />
+        <MudPaper Elevation="2" Style="padding:20px;min-height:450px">
+            @if (selectedQuestion is not null)
+            {
+                <MudCard>
+                    <MudCardContent>
+                        <MudText>@selectedQuestion.Title</MudText>
+                        <MudText Typo="Typo.body2">@selectedQuestion.Description</MudText>
+                    </MudCardContent>
+                    <MudPaper Square="true" Style="display:flex;height:250px;align-items:center;justify-content:center">
+                        <MudText Typo="Typo.h4" Color="Color.Surface">
+                            @subQuestionsText
+                        </MudText>
+                    </MudPaper>
+                    <br />
+                    <MudPaper Elevation="2" Square="true" Style="display:flex;height:50px;align-items:center;justify-content:center">
+                        <MudText Typo="Typo.h6" Color="Color.Surface">
+                            Answer is : @selectedQuestion.Answer
+                        </MudText>
+                    </MudPaper>
+                    <MudCardActions>
+                        <MudButton OnClick="SendQuestion" Variant="Variant.Text" Color="Color.Primary">Send Question</MudButton>
+                        <MudButton OnClick="StartQuiz" Variant="Variant.Text" Color="Color.Secondary">Start</MudButton>
+                    </MudCardActions>
+                </MudCard>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+
+@code {
+
+    private List<Question> Questions = null;
+
+    private Question selectedQuestion = null;
+
+    private string subQuestionsText = "Click Start";
+
+    private int totalQuestions = 5;
+
+    private async ValueTask<ItemsProviderResult<Question>> LoadQuestions(ItemsProviderRequest request)
+    {
+        var numQuestion = Math.Min(request.Count, totalQuestions - request.StartIndex);
+        Questions = await quizService.GetQuestionsAsync();
+
+        return new ItemsProviderResult<Question>(Questions, totalQuestions);
+    }
+
+    private void OnItemSelected(long id)
+    {
+        selectedQuestion = Questions?.Find(p => p.Id == id);
+        subQuestionsText = "Click Start";
+    }
+
+
+    private bool isReady = false;
+
+    private HubConnection _hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ConnectAsync();
+    }
+
+    private async Task ConnectAsync()
+    {
+        try
+        {
+            // force refresh UI.
+            isReady = true;
+            await Task.Delay(1);
+
+
+            string baseUrl = navigationManager.BaseUri.TrimEnd('/') + QuizHub.HubUrl;
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(baseUrl)
+                .Build();
+
+            await _hubConnection.StartAsync();
+
+        }
+        catch (Exception e)
+        {
+            isReady = false;
+            Console.WriteLine(e);
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if (isReady)
+        {
+            await _hubConnection.StopAsync();
+            await _hubConnection.DisposeAsync();
+
+            _hubConnection = null;
+            isReady = false;
+        }
+    }
+
+    private async Task SendQuestion()
+    {
+        await _hubConnection.InvokeAsync<Question>("SendQuestion", selectedQuestion);
+    }
+
+
+    private async Task StartQuiz()
+    {
+        if (selectedQuestion is not null)
+        {
+
+            foreach (var subQuestion in selectedQuestion.SubQuestions)
+            {
+                subQuestionsText = subQuestion.Content;
+                StateHasChanged();
+
+                await _hubConnection.InvokeAsync("StartQuiz", subQuestion);
+
+                await Task.Delay((int)subQuestion.Duration.TotalMilliseconds);
+            }
+        }
+    }
+
+}

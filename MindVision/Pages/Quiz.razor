@@ -1,0 +1,97 @@
+﻿@page "/quiz"
+@inject NavigationManager navigationManager
+@using Microsoft.AspNetCore.SignalR.Client
+@using MindVision.Hubs
+
+<div>
+    <div style="display:flex;align-items:center;justify-content:center">
+        <MudText Typo="Typo.h5">
+            Flash Cards
+        </MudText>
+    </div>
+    <br />
+    <MudPaper Elevation="2" Style="padding:20px;min-height:450px">
+        @if (selectedQuestion is not null && isReady)
+        {
+            <MudCard>
+                <MudCardContent>
+                    <MudText>@selectedQuestion.Title</MudText>
+                    <MudText Typo="Typo.body2">@selectedQuestion.Description</MudText>
+                </MudCardContent>
+                <MudPaper Square="true" Style="display:flex;height:250px;align-items:center;justify-content:center">
+                    <MudText Typo="Typo.h4" Color="Color.Surface">
+                        @subQuestionsText
+                    </MudText>
+                </MudPaper>
+                
+            </MudCard>
+        }
+    </MudPaper>
+</div>
+
+@code {
+
+    private MudForm form;
+    private HubConnection _hubConnection;
+    private Question selectedQuestion = null;
+
+    private string subQuestionsText = "";
+    private bool isReady = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ConnectAsync();
+    }
+
+    private async Task ConnectAsync()
+    {
+        try
+        {
+            // force refresh UI.
+            isReady = true;
+            await Task.Delay(1);
+
+            // Create the quiz client
+            string baseUrl = navigationManager.BaseUri.TrimEnd('/') + QuizHub.HubUrl;
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(baseUrl)
+                .Build();
+
+            _hubConnection.On<Question>("OnReceiveQuestion", question =>
+            {
+                selectedQuestion = question;
+                subQuestionsText = "Get Ready";
+                StateHasChanged();
+            });
+
+            _hubConnection.On<string>("OnStartQuiz", OnStartQuiz);
+
+            await _hubConnection.StartAsync();
+
+        }
+        catch (Exception e)
+        {
+            isReady = false;
+            Console.WriteLine(e);
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if (isReady)
+        {
+            await _hubConnection.StopAsync();
+            await _hubConnection.DisposeAsync();
+
+            _hubConnection = null;
+            isReady = false;
+        }
+    }
+
+    private void OnStartQuiz(string content)
+    {
+        subQuestionsText = content;
+        StateHasChanged();
+    }
+}
